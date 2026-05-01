@@ -47,6 +47,7 @@
 
     html, body {
       height: 100%;
+      height: 100dvh;
       overflow: hidden;
       font-family: -apple-system, 'SF Pro Display', system-ui, sans-serif;
       background: var(--bg);
@@ -65,6 +66,7 @@
       display: flex;
       flex-direction: column;
       height: 100%;
+      height: 100dvh;
       max-width: 430px;
       margin: 0 auto;
       position: relative;
@@ -77,12 +79,13 @@
       overflow-x: hidden;
       -webkit-overflow-scrolling: touch;
       padding-bottom: calc(var(--tab-height) + var(--safe-bottom) + 16px);
-      padding-top: calc(var(--safe-top) + 16px);
+      /* Use explicit fallback so notch/Dynamic Island doesn't clip top content */
+      padding-top: calc(env(safe-area-inset-top, 44px) + 16px);
     }
 
     .screen.active { display: block; }
 
-    /* Overlay screens (workout flow) */
+    /* Overlay screens need safe area at top too */
     .overlay-screen {
       display: none;
       position: fixed;
@@ -92,8 +95,14 @@
       flex-direction: column;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
+      padding-top: env(safe-area-inset-top, 44px);
     }
     .overlay-screen.active { display: flex; }
+
+    /* Nav headers inside overlays — reduce their own top padding since overlay handles it */
+    .overlay-screen .nav-header {
+      padding-top: 6px;
+    }
 
     /* =====================================================
        TYPOGRAPHY
@@ -354,6 +363,7 @@
 
     .streak-dot.green { background: var(--green); }
     .streak-dot.orange { background: var(--orange); }
+    .streak-dot.blue { background: var(--blue); }
     .streak-dot.rest { background: var(--surface3); }
     .streak-dot.today { outline: 2px solid var(--accent); outline-offset: 1px; }
 
@@ -961,12 +971,15 @@
     <div class="card">
       <div class="label" style="margin-bottom:12px;">Last 14 Days</div>
       <div class="streak-grid" id="streak-grid"></div>
-      <div style="display:flex;gap:16px;margin-top:12px;">
+      <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:6px;" class="caption">
           <div style="width:10px;height:10px;border-radius:2px;background:var(--green);"></div>Lift A
         </div>
         <div style="display:flex;align-items:center;gap:6px;" class="caption">
           <div style="width:10px;height:10px;border-radius:2px;background:var(--orange);"></div>Lift B
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;" class="caption">
+          <div style="width:10px;height:10px;border-radius:2px;background:var(--blue);"></div>Lift C
         </div>
         <div style="display:flex;align-items:center;gap:6px;" class="caption">
           <div style="width:10px;height:10px;border-radius:2px;background:var(--surface3);"></div>Rest
@@ -1324,37 +1337,55 @@
    ===================================================== */
 
 const DB_NAME = 'LiftDB';
-const DB_VERSION = 1;
-const SCHEMA_VERSION = '1.0.0';
+const DB_VERSION = 2;  // bumped to force reseed of new A/B/C workouts
+const SCHEMA_VERSION = '1.1.0';
 
 // Default workouts pre-loaded on first run
+// Schedule: Mon = Lift A, Wed = Lift B, Fri = Lift C (fixed, no alternating)
 const DEFAULT_WORKOUTS = [
   {
     id: 'lift-a',
     name: 'Lift A',
-    description: 'Push + Quads',
+    description: 'Push — Chest · Shoulders · Triceps',
     color: 'green',
+    scheduledDay: 1, // Monday
     exercises: [
-      { id: 'ex-a1', name: 'Incline DB Press (30°)', sets: 3, repsMin: 8, repsMax: 12, rest: 90 },
-      { id: 'ex-a2', name: 'Cable Chest Fly',        sets: 3, repsMin: 12, repsMax: 15, rest: 60 },
-      { id: 'ex-a3', name: 'Bulgarian Split Squat',  sets: 3, repsMin: 8, repsMax: 10, rest: 90 },
-      { id: 'ex-a4', name: 'Leg Extension',          sets: 3, repsMin: 12, repsMax: 15, rest: 60 },
-      { id: 'ex-a5', name: 'Seated DB Shoulder Press', sets: 3, repsMin: 10, repsMax: 12, rest: 60 },
-      { id: 'ex-a6', name: 'Lat Pulldown',           sets: 3, repsMin: 10, repsMax: 12, rest: 60 },
+      { id: 'ex-a1', name: 'Incline DB Press (30°)',      sets: 3, repsMin: 8,  repsMax: 12, rest: 90 },
+      { id: 'ex-a2', name: 'Cable Chest Fly',             sets: 3, repsMin: 12, repsMax: 15, rest: 60 },
+      { id: 'ex-a3', name: 'Seated DB Shoulder Press',    sets: 3, repsMin: 10, repsMax: 12, rest: 60 },
+      { id: 'ex-a4', name: 'Cable Lateral Raise',         sets: 3, repsMin: 15, repsMax: 15, rest: 45 },
+      { id: 'ex-a5', name: 'Tricep Rope Pushdown',        sets: 3, repsMin: 12, repsMax: 15, rest: 45 },
+      { id: 'ex-a6', name: 'Overhead Tricep Extension',   sets: 3, repsMin: 10, repsMax: 12, rest: 60 },
     ]
   },
   {
     id: 'lift-b',
     name: 'Lift B',
-    description: 'Pull + Hinge',
+    description: 'Pull — Back · Biceps · Rear Delts',
     color: 'orange',
+    scheduledDay: 3, // Wednesday
     exercises: [
-      { id: 'ex-b1', name: 'Pull-Up or Lat Pulldown', sets: 3, repsMin: 6, repsMax: 10, rest: 90 },
+      { id: 'ex-b1', name: 'Pull-Up or Lat Pulldown', sets: 3, repsMin: 6,  repsMax: 10, rest: 90 },
       { id: 'ex-b2', name: 'Cable or DB Row',         sets: 3, repsMin: 10, repsMax: 12, rest: 75 },
-      { id: 'ex-b3', name: 'Romanian Deadlift',       sets: 3, repsMin: 10, repsMax: 12, rest: 90 },
-      { id: 'ex-b4', name: 'Face Pull',               sets: 3, repsMin: 15, repsMax: 20, rest: 45 },
-      { id: 'ex-b5', name: 'Incline DB Curl',         sets: 3, repsMin: 10, repsMax: 12, rest: 60 },
-      { id: 'ex-b6', name: 'Tricep Rope Pushdown',    sets: 3, repsMin: 12, repsMax: 15, rest: 45 },
+      { id: 'ex-b3', name: 'Face Pull',               sets: 3, repsMin: 15, repsMax: 20, rest: 45 },
+      { id: 'ex-b4', name: 'Incline DB Curl',         sets: 3, repsMin: 10, repsMax: 12, rest: 60 },
+      { id: 'ex-b5', name: 'Hammer Curl',             sets: 3, repsMin: 10, repsMax: 12, rest: 60 },
+      { id: 'ex-b6', name: 'Rear Delt Cable Fly',     sets: 3, repsMin: 15, repsMax: 15, rest: 45 },
+    ]
+  },
+  {
+    id: 'lift-c',
+    name: 'Lift C',
+    description: 'Legs + Core — Quads · Hamstrings · Glutes',
+    color: 'blue',
+    scheduledDay: 5, // Friday
+    exercises: [
+      { id: 'ex-c1', name: 'Bulgarian Split Squat',          sets: 3, repsMin: 8,  repsMax: 10, rest: 90 },
+      { id: 'ex-c2', name: 'Romanian Deadlift',              sets: 3, repsMin: 10, repsMax: 12, rest: 90 },
+      { id: 'ex-c3', name: 'Leg Extension',                  sets: 3, repsMin: 12, repsMax: 15, rest: 60 },
+      { id: 'ex-c4', name: 'Lying Leg Curl',                 sets: 3, repsMin: 10, repsMax: 12, rest: 60 },
+      { id: 'ex-c5', name: 'Hip Thrust',                     sets: 3, repsMin: 12, repsMax: 15, rest: 60 },
+      { id: 'ex-c6', name: 'Ab Wheel or Hanging Leg Raise',  sets: 3, repsMin: 1,  repsMax: 99, rest: 60 },
     ]
   }
 ];
@@ -1403,6 +1434,12 @@ function openDB() {
       // settings store
       if (!d.objectStoreNames.contains('settings')) {
         d.createObjectStore('settings', { keyPath: 'key' });
+      }
+      // On upgrade from v1→v2: seed/overwrite the three default workouts
+      if (e.oldVersion < 2) {
+        const tx = e.target.transaction;
+        const store = tx.objectStore('workouts');
+        DEFAULT_WORKOUTS.forEach(w => store.put(w));
       }
     };
 
@@ -1639,30 +1676,15 @@ function stopElapsedTimer() {
    HOME SCREEN
    ===================================================== */
 function getTodayWorkout(workouts) {
-  // Mon=A, Wed=B, Fri=alternates by week parity
-  // Week 1 odd: Mon=A, Wed=B, Fri=A
-  // Week 2 even: Mon=B, Wed=A, Fri=B
+  // Fixed schedule: Mon = Lift A, Wed = Lift B, Fri = Lift C
   const today = new Date();
   const dow = today.getDay(); // 0=Sun,1=Mon,...,6=Sat
 
-  if (![1, 3, 5].includes(dow)) return null; // Not a workout day
+  const dayToWorkoutId = { 1: 'lift-a', 3: 'lift-b', 5: 'lift-c' };
+  const targetId = dayToWorkoutId[dow];
+  if (!targetId) return null; // Rest day
 
-  // Determine week parity (ISO week number)
-  const jan1 = new Date(today.getFullYear(), 0, 1);
-  const weekNum = Math.ceil(((today - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-  const isOddWeek = weekNum % 2 === 1;
-
-  // Mon=1, Wed=3, Fri=5
-  let useA;
-  if (dow === 1) useA = isOddWeek;         // Mon: odd=A, even=B
-  else if (dow === 3) useA = !isOddWeek;   // Wed: odd=B, even=A
-  else useA = isOddWeek;                    // Fri: odd=A, even=B
-
-  // Find lift A and B workouts
-  const liftA = workouts.find(w => w.id === 'lift-a') || workouts[0];
-  const liftB = workouts.find(w => w.id === 'lift-b') || workouts[1] || liftA;
-
-  return useA ? liftA : liftB;
+  return workouts.find(w => w.id === targetId) || null;
 }
 
 async function renderHome() {
@@ -1685,14 +1707,17 @@ async function renderHome() {
 
   if (suggested && [1,3,5].includes(dow)) {
     document.getElementById('today-workout-name').textContent = `${suggested.name} — ${suggested.description}`;
-    document.getElementById('today-workout-badge').textContent = suggested.name.includes('A') ? 'A' : suggested.name.includes('B') ? 'B' : '★';
-    document.getElementById('today-workout-badge').className = 'badge ' + (suggested.id === 'lift-b' ? 'badge-orange' : 'badge-green');
+    const letter = suggested.id === 'lift-a' ? 'A' : suggested.id === 'lift-b' ? 'B' : suggested.id === 'lift-c' ? 'C' : '★';
+    const badgeClass = suggested.id === 'lift-b' ? 'badge-orange' : suggested.id === 'lift-c' ? 'badge-blue' : 'badge-green';
+    document.getElementById('today-workout-badge').textContent = letter;
+    document.getElementById('today-workout-badge').className = 'badge ' + badgeClass;
     document.getElementById('today-workout-desc').textContent = `${suggested.exercises.length} exercises · ~55 min`;
   } else {
     document.getElementById('today-workout-name').textContent = 'Rest Day';
     document.getElementById('today-workout-badge').textContent = '—';
     document.getElementById('today-workout-badge').className = 'badge';
-    document.getElementById('today-workout-desc').textContent = 'Next workout: ' + (['Mon','Wed','Fri'][Math.ceil([0,1,2,3,4,5,6].indexOf(dow))] || 'Monday');
+    const nextDay = dow === 1 ? 'Wed (B)' : dow === 3 ? 'Fri (C)' : dow === 5 ? 'Mon (A)' : 'Mon (A)';
+    document.getElementById('today-workout-desc').textContent = 'Next: ' + nextDay;
   }
 
   // Stats
@@ -1725,7 +1750,9 @@ async function renderHome() {
     const dot = document.createElement('div');
     dot.className = 'streak-dot';
     if (daySession) {
-      dot.classList.add(daySession.workoutId === 'lift-b' ? 'orange' : 'green');
+      if (daySession.workoutId === 'lift-b') dot.classList.add('orange');
+      else if (daySession.workoutId === 'lift-c') dot.classList.add('blue');
+      else dot.classList.add('green');
     } else {
       dot.classList.add('rest');
     }
@@ -1751,13 +1778,15 @@ async function renderWorkouts() {
     const card = document.createElement('div');
     card.className = 'card';
     card.style.cursor = 'pointer';
+    const letter = w.id === 'lift-a' ? 'A' : w.id === 'lift-b' ? 'B' : w.id === 'lift-c' ? 'C' : '★';
+    const badgeClass = w.id === 'lift-b' ? 'badge-orange' : w.id === 'lift-c' ? 'badge-blue' : 'badge-green';
     card.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div>
           <div class="title-md">${escHtml(w.name)}</div>
           <div class="caption" style="margin-top:2px;">${escHtml(w.description || '')} · ${w.exercises.length} exercises</div>
         </div>
-        <span class="badge ${w.id === 'lift-b' ? 'badge-orange' : 'badge-green'}">${w.name.includes('A') ? 'A' : w.name.includes('B') ? 'B' : '★'}</span>
+        <span class="badge ${badgeClass}">${letter}</span>
       </div>
       <div style="margin-top:12px;" class="caption">
         ${w.exercises.map(e => escHtml(e.name)).join(' · ')}
@@ -2445,7 +2474,7 @@ async function renderHistory(filter) {
   filtered.forEach(s => {
     const totalSets = s.exercises.reduce((acc, e) => acc + e.sets.length, 0);
     const dur = s.duration ? `${Math.floor(s.duration / 60)}m` : '';
-    const isA = s.workoutId === 'lift-a' || s.workoutName?.includes('A');
+    const badgeClass = s.workoutId === 'lift-b' ? 'badge-orange' : s.workoutId === 'lift-c' ? 'badge-blue' : 'badge-green';
 
     const card = document.createElement('div');
     card.className = 'session-card';
@@ -2455,7 +2484,7 @@ async function renderHistory(filter) {
           <div class="title-sm">${formatDate(s.date)}</div>
           <div class="caption">${s.date}</div>
         </div>
-        <span class="badge ${isA ? 'badge-green' : 'badge-orange'}">${s.workoutName || 'Workout'}</span>
+      <span class="badge ${badgeClass}">${s.workoutName || 'Workout'}</span>
       </div>
       <div style="display:flex;gap:16px;" class="caption">
         <span>${s.exercises.length} exercises</span>
